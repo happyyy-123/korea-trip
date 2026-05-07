@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>韓國行 - 4人可刪除版</title>
+    <title>韓國行 </title>
     <style>
         :root { --kr-blue: #003472; --kr-red: #c60c30; }
         body { font-family: -apple-system, sans-serif; padding: 15px; background: #f4f4f9; margin: 0; padding-bottom: 50px; }
@@ -23,6 +23,9 @@
         .del-btn { color: #ff4d4f; border: 1px solid #ff4d4f; background: none; padding: 4px 8px; border-radius: 4px; width: auto; font-size: 11px; margin: 0; }
         .settle-res { background: #fff4f4; padding: 15px; border-radius: 10px; color: var(--kr-red); font-weight: bold; line-height: 1.6; }
         small { color: #666; display: block; font-size: 10px; }
+        .rate-box { background: #fffbe6; border: 1px solid #ffe58f; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+        /* 時間輸入框特別樣式 */
+        .time-box { background: #f0f7ff; border: 1px solid #bae7ff; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -30,58 +33,80 @@
 <div class="card config-card">
     <label>1. 設定成員名字</label>
     <div class="member-config-grid">
-        <input type="text" id="m1" value="成員A" oninput="updateMemberNames()">
+        <input type="text" id="m1" value="V" oninput="updateMemberNames()">
         <input type="text" id="m2" value="成員B" oninput="updateMemberNames()">
         <input type="text" id="m3" value="成員C" oninput="updateMemberNames()">
         <input type="text" id="m4" value="成員D" oninput="updateMemberNames()">
     </div>
     <div class="grid" style="margin-top:10px;">
-        <div><label>匯率 (1 KRW=?)</label><input type="number" id="rate" value="0.0057" step="0.0001" oninput="sync('krw')"></div>
+        <div><label>預設匯率 (參考)</label><input type="number" id="base_rate" value="0.0057" step="0.0001"></div>
         <div><label>顯示幣別</label><input type="text" id="currency" value="HKD"></div>
     </div>
 </div>
 
 <div class="card">
+    <div class="time-box">
+        <label style="color:#0050b3;">日期與時間</label>
+        <input type="datetime-local" id="txn_time" style="border-color:#91d5ff;">
+    </div>
+
     <label>項目名稱</label>
-    <input type="text" id="desc" placeholder="例如：炸雞">
+    <input type="text" id="desc" placeholder="例如：7 號炸雞">
+    
+    <div class="rate-box">
+        <label style="color:#856404;">本次帳單匯率</label>
+        <input type="number" id="this_rate" step="0.000001" oninput="sync('krw')" style="border-color:#ffe58f;">
+    </div>
+
     <div class="grid">
         <div><label>金額 (KRW)</label><input type="number" id="amt_krw" oninput="sync('krw')"></div>
         <div><label>金額 (<span id="curr_name">HKD</span>)</label><input type="number" id="amt_target" oninput="sync('target')"></div>
     </div>
+    
     <label>誰付的錢？</label><select id="payer"></select>
     <label>誰要分擔？</label><div id="check_group" class="member-group"></div>
+    
     <button class="primary" onclick="save()">記錄帳單</button>
 </div>
 
 <div class="card">
     <h3>帳單明細</h3>
     <table id="list">
-        <thead><tr><th>項目</th><th>金額</th><th>操作</th></tr></thead>
+        <thead><tr><th>項目/時間</th><th>金額/匯率</th><th>操作</th></tr></thead>
         <tbody id="list_body"></tbody>
     </table>
 </div>
 
 <div class="card">
     <h3>結算建議</h3>
-    <div id="settle" class="settle-res">輸入數據中...</div>
+    <div id="settle" class="settle-res">計算中...</div>
     <button onclick="reset()" style="background:#666; font-size:12px; height:35px; margin-top:20px;">清空所有資料</button>
 </div>
 
 <script>
-    let logs = JSON.parse(localStorage.getItem('kr_trip_v6')) || [];
+    let logs = JSON.parse(localStorage.getItem('kr_trip_v8')) || [];
     let members = [];
 
+    // 自動獲取當前時間並格式化為 datetime-local 要求的格式 (YYYY-MM-DDTHH:MM)
+    function setCurrentTime() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        document.getElementById('txn_time').value = now.toISOString().slice(0, 16);
+    }
+
+    document.getElementById('base_rate').addEventListener('input', function() {
+        document.getElementById('this_rate').value = this.value;
+    });
+
     function updateMemberNames() {
-        members = [document.getElementById('m1').value||'A', document.getElementById('m2').value||'B', document.getElementById('m3').value||'C', document.getElementById('m4').value||'D'];
-        const pSelect = document.getElementById('payer');
-        pSelect.innerHTML = members.map(m => `<option value="${m}">${m}</option>`).join('');
-        const cGroup = document.getElementById('check_group');
-        cGroup.innerHTML = members.map(m => `<label class="member-chip"><input type="checkbox" name="split_m" value="${m}" checked> ${m}</label>`).join('');
+        members = [document.getElementById('m1').value||'V', document.getElementById('m2').value||'B', document.getElementById('m3').value||'C', document.getElementById('m4').value||'D'];
+        document.getElementById('payer').innerHTML = members.map(m => `<option value="${m}">${m}</option>`).join('');
+        document.getElementById('check_group').innerHTML = members.map(m => `<label class="member-chip"><input type="checkbox" name="split_m" value="${m}" checked> ${m}</label>`).join('');
         render();
     }
 
     function sync(type) {
-        const rate = parseFloat(document.getElementById('rate').value);
+        const rate = parseFloat(document.getElementById('this_rate').value) || parseFloat(document.getElementById('base_rate').value);
         const krwIn = document.getElementById('amt_krw'), targetIn = document.getElementById('amt_target');
         document.getElementById('curr_name').innerText = document.getElementById('currency').value;
         if (type === 'krw' && krwIn.value) targetIn.value = (krwIn.value * rate).toFixed(2);
@@ -90,38 +115,58 @@
 
     function save() {
         const checked = Array.from(document.querySelectorAll('input[name="split_m"]:checked')).map(i => i.value);
+        const currentRate = parseFloat(document.getElementById('this_rate').value);
+        const timeVal = document.getElementById('txn_time').value;
+
         if (checked.length === 0) return alert("至少要有一人分擔");
+        
         const data = {
             id: Date.now(),
+            time: timeVal.replace('T', ' '), // 優化顯示格式
             desc: document.getElementById('desc').value || '未命名',
             payer: document.getElementById('payer').value,
             krw: parseFloat(document.getElementById('amt_krw').value),
+            rate: currentRate,
             splitWith: checked
         };
+        
         if (!data.krw) return alert("請輸入金額");
         logs.push(data);
-        localStorage.setItem('kr_trip_v6', JSON.stringify(logs));
-        document.getElementById('desc').value = ''; document.getElementById('amt_krw').value = ''; document.getElementById('amt_target').value = '';
+        localStorage.setItem('kr_trip_v8', JSON.stringify(logs));
+        
+        // 重置
+        document.getElementById('desc').value = ''; 
+        document.getElementById('amt_krw').value = ''; 
+        document.getElementById('amt_target').value = '';
+        document.getElementById('this_rate').value = document.getElementById('base_rate').value;
+        setCurrentTime(); // 儲存後更新到最新時間
         render();
     }
 
-    // 刪除功能
     function deleteLog(id) {
-        if(confirm("確定刪除此筆帳單？")) {
+        if(confirm("確定刪除？")) {
             logs = logs.filter(l => l.id !== id);
-            localStorage.setItem('kr_trip_v6', JSON.stringify(logs));
+            localStorage.setItem('kr_trip_v8', JSON.stringify(logs));
             render();
         }
     }
 
     function render() {
         const body = document.getElementById('list_body');
-        const rate = parseFloat(document.getElementById('rate').value), curr = document.getElementById('currency').value;
+        const curr = document.getElementById('currency').value;
 
         body.innerHTML = logs.map(l => `
             <tr>
-                <td><b>${l.desc}</b><br><small>${l.payer} 付款<br>分擔: ${l.splitWith.join(',')}</small></td>
-                <td>₩${l.krw.toLocaleString()}<br><small>≈ ${(l.krw * rate).toFixed(2)} ${curr}</small></td>
+                <td>
+                    <b>${l.desc}</b><br>
+                    <small style="color:#0050b3;">${l.time}</small><br>
+                    <small>${l.payer} 付 | 分擔: ${l.splitWith.join(',')}</small>
+                </td>
+                <td>
+                    ₩${l.krw.toLocaleString()}<br>
+                    <small>@${l.rate}</small><br>
+                    <small>≈ ${(l.krw * l.rate).toFixed(2)} ${curr}</small>
+                </td>
                 <td><button class="del-btn" onclick="deleteLog(${l.id})">刪除</button></td>
             </tr>
         `).reverse().join('');
@@ -136,19 +181,26 @@
 
         let resHtml = "", debt = members.map(m=>({name:m, amt:balance[m]})).filter(x=>x.amt < -1).sort((a,b)=>a.amt-b.amt);
         let credit = members.map(m=>({name:m, amt:balance[m]})).filter(x=>x.amt > 1).sort((a,b)=>b.amt-a.amt);
+        
+        const baseRate = parseFloat(document.getElementById('base_rate').value);
+
         debt.forEach(d => {
             credit.forEach(c => {
                 let move = Math.min(Math.abs(d.amt), c.amt);
                 if (move > 1) {
-                    resHtml += `${d.name} ➡️ ${c.name}: ₩${Math.round(move).toLocaleString()}<br>`;
+                    resHtml += `${d.name} ➡️ ${c.name}: ₩${Math.round(move).toLocaleString()}<br><small>(≈ ${(move * baseRate).toFixed(1)} ${curr})</small><br><br>`;
                     d.amt += move; c.amt -= move;
                 }
             });
         });
-        document.getElementById('settle').innerHTML = resHtml || "互不相欠";
+        document.getElementById('settle').innerHTML = resHtml || "大家互不相欠！";
     }
 
-    function reset() { if(confirm("確定清空所有紀錄？")) { localStorage.removeItem('kr_trip_v6'); logs=[]; render(); } }
+    function reset() { if(confirm("確定清空？")) { localStorage.removeItem('kr_trip_v8'); logs=[]; render(); } }
+    
+    // 初始化
+    setCurrentTime();
+    document.getElementById('this_rate').value = document.getElementById('base_rate').value;
     updateMemberNames();
 </script>
 </body>
