@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>韓國行 - 4人可刪除版</title>
+    <style>
+        :root { --kr-blue: #003472; --kr-red: #c60c30; }
+        body { font-family: -apple-system, sans-serif; padding: 15px; background: #f4f4f9; margin: 0; padding-bottom: 50px; }
+        .card { background: white; padding: 18px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 15px; }
+        .config-card { background: var(--kr-blue); color: white; }
+        label { display: block; font-size: 11px; margin-bottom: 4px; opacity: 0.9; }
+        input, select, button { width: 100%; padding: 12px; margin: 5px 0 10px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+        .member-config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .member-config-grid input { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white; margin-bottom: 5px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .member-group { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+        .member-chip { background: #eee; padding: 8px 12px; border-radius: 20px; font-size: 13px; display: flex; align-items: center; }
+        .member-chip input { width: auto; margin: 0 6px 0 0; }
+        button.primary { background: var(--kr-red); color: white; border: none; font-weight: bold; height: 50px; margin-top: 5px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { text-align: left; padding: 10px 4px; border-bottom: 1px solid #eee; }
+        .del-btn { color: #ff4d4f; border: 1px solid #ff4d4f; background: none; padding: 4px 8px; border-radius: 4px; width: auto; font-size: 11px; margin: 0; }
+        .settle-res { background: #fff4f4; padding: 15px; border-radius: 10px; color: var(--kr-red); font-weight: bold; line-height: 1.6; }
+        small { color: #666; display: block; font-size: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="card config-card">
+    <label>1. 設定成員名字</label>
+    <div class="member-config-grid">
+        <input type="text" id="m1" value="成員A" oninput="updateMemberNames()">
+        <input type="text" id="m2" value="成員B" oninput="updateMemberNames()">
+        <input type="text" id="m3" value="成員C" oninput="updateMemberNames()">
+        <input type="text" id="m4" value="成員D" oninput="updateMemberNames()">
+    </div>
+    <div class="grid" style="margin-top:10px;">
+        <div><label>匯率 (1 KRW=?)</label><input type="number" id="rate" value="0.0057" step="0.0001" oninput="sync('krw')"></div>
+        <div><label>顯示幣別</label><input type="text" id="currency" value="HKD"></div>
+    </div>
+</div>
+
+<div class="card">
+    <label>項目名稱</label>
+    <input type="text" id="desc" placeholder="例如：炸雞">
+    <div class="grid">
+        <div><label>金額 (KRW)</label><input type="number" id="amt_krw" oninput="sync('krw')"></div>
+        <div><label>金額 (<span id="curr_name">HKD</span>)</label><input type="number" id="amt_target" oninput="sync('target')"></div>
+    </div>
+    <label>誰付的錢？</label><select id="payer"></select>
+    <label>誰要分擔？</label><div id="check_group" class="member-group"></div>
+    <button class="primary" onclick="save()">記錄帳單</button>
+</div>
+
+<div class="card">
+    <h3>帳單明細</h3>
+    <table id="list">
+        <thead><tr><th>項目</th><th>金額</th><th>操作</th></tr></thead>
+        <tbody id="list_body"></tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3>結算建議</h3>
+    <div id="settle" class="settle-res">輸入數據中...</div>
+    <button onclick="reset()" style="background:#666; font-size:12px; height:35px; margin-top:20px;">清空所有資料</button>
+</div>
+
+<script>
+    let logs = JSON.parse(localStorage.getItem('kr_trip_v6')) || [];
+    let members = [];
+
+    function updateMemberNames() {
+        members = [document.getElementById('m1').value||'A', document.getElementById('m2').value||'B', document.getElementById('m3').value||'C', document.getElementById('m4').value||'D'];
+        const pSelect = document.getElementById('payer');
+        pSelect.innerHTML = members.map(m => `<option value="${m}">${m}</option>`).join('');
+        const cGroup = document.getElementById('check_group');
+        cGroup.innerHTML = members.map(m => `<label class="member-chip"><input type="checkbox" name="split_m" value="${m}" checked> ${m}</label>`).join('');
+        render();
+    }
+
+    function sync(type) {
+        const rate = parseFloat(document.getElementById('rate').value);
+        const krwIn = document.getElementById('amt_krw'), targetIn = document.getElementById('amt_target');
+        document.getElementById('curr_name').innerText = document.getElementById('currency').value;
+        if (type === 'krw' && krwIn.value) targetIn.value = (krwIn.value * rate).toFixed(2);
+        else if (type === 'target' && targetIn.value) krwIn.value = Math.round(targetIn.value / rate);
+    }
+
+    function save() {
+        const checked = Array.from(document.querySelectorAll('input[name="split_m"]:checked')).map(i => i.value);
+        if (checked.length === 0) return alert("至少要有一人分擔");
+        const data = {
+            id: Date.now(),
+            desc: document.getElementById('desc').value || '未命名',
+            payer: document.getElementById('payer').value,
+            krw: parseFloat(document.getElementById('amt_krw').value),
+            splitWith: checked
+        };
+        if (!data.krw) return alert("請輸入金額");
+        logs.push(data);
+        localStorage.setItem('kr_trip_v6', JSON.stringify(logs));
+        document.getElementById('desc').value = ''; document.getElementById('amt_krw').value = ''; document.getElementById('amt_target').value = '';
+        render();
+    }
+
+    // 刪除功能
+    function deleteLog(id) {
+        if(confirm("確定刪除此筆帳單？")) {
+            logs = logs.filter(l => l.id !== id);
+            localStorage.setItem('kr_trip_v6', JSON.stringify(logs));
+            render();
+        }
+    }
+
+    function render() {
+        const body = document.getElementById('list_body');
+        const rate = parseFloat(document.getElementById('rate').value), curr = document.getElementById('currency').value;
+
+        body.innerHTML = logs.map(l => `
+            <tr>
+                <td><b>${l.desc}</b><br><small>${l.payer} 付款<br>分擔: ${l.splitWith.join(',')}</small></td>
+                <td>₩${l.krw.toLocaleString()}<br><small>≈ ${(l.krw * rate).toFixed(2)} ${curr}</small></td>
+                <td><button class="del-btn" onclick="deleteLog(${l.id})">刪除</button></td>
+            </tr>
+        `).reverse().join('');
+
+        let balance = {};
+        members.forEach(m => balance[m] = 0);
+        logs.forEach(l => {
+            if(balance.hasOwnProperty(l.payer)) balance[l.payer] += l.krw;
+            let per = l.krw / l.splitWith.length;
+            l.splitWith.forEach(m => { if(balance.hasOwnProperty(m)) balance[m] -= per; });
+        });
+
+        let resHtml = "", debt = members.map(m=>({name:m, amt:balance[m]})).filter(x=>x.amt < -1).sort((a,b)=>a.amt-b.amt);
+        let credit = members.map(m=>({name:m, amt:balance[m]})).filter(x=>x.amt > 1).sort((a,b)=>b.amt-a.amt);
+        debt.forEach(d => {
+            credit.forEach(c => {
+                let move = Math.min(Math.abs(d.amt), c.amt);
+                if (move > 1) {
+                    resHtml += `${d.name} ➡️ ${c.name}: ₩${Math.round(move).toLocaleString()}<br>`;
+                    d.amt += move; c.amt -= move;
+                }
+            });
+        });
+        document.getElementById('settle').innerHTML = resHtml || "互不相欠";
+    }
+
+    function reset() { if(confirm("確定清空所有紀錄？")) { localStorage.removeItem('kr_trip_v6'); logs=[]; render(); } }
+    updateMemberNames();
+</script>
+</body>
+</html>
